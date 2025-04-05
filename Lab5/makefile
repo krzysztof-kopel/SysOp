@@ -1,9 +1,14 @@
-all: zad1 catcher
+all: zad1 catcher sender
 
-.PHONY: zad1 cathcer send receive
+.PHONY: all test clean
+
+test: all
 
 catcher: catcher.c 
 	gcc catcher.c -o catcher
+
+sender: sender.c 
+	gcc sender.c -o sender
 
 zad1: zad1.c
 	gcc zad1.c -o zad1

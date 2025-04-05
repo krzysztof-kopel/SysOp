@@ -13,7 +13,7 @@ void handler(int sig_no, siginfo_t* siginfo, void* p3) { // Ten p3 chyba do nicz
     kill(siginfo->si_pid, SIGUSR1);
 }
 
-void sigint_handler() {
+void sigint_handler(int sig) {
     printf("Wciśnięto CTRL+C\n");
 }
 
@@ -25,7 +25,6 @@ int main() {
 
     sigemptyset(&set);
     sigaddset(&set, SIGUSR1);
-    sigprocmask(SIG_SETMASK, &set, NULL);
 
     struct sigaction sigact;
     sigact.sa_sigaction = handler;
@@ -34,8 +33,6 @@ int main() {
     sigaction(SIGUSR1, &sigact, NULL);
 
     while (mode != 5) {
-        sigsuspend(&empty_set);
-
         switch (mode) {
             case 1:
                 printf("Liczba otrzymanych żądań: %d\n", requests);
@@ -46,23 +43,34 @@ int main() {
                     printf("%d\n", i);
                     sleep(1);
                 }
-                break;
+                continue; // Gdyby tutaj był break, to sygnał przerywający równy 3 albo 4 nie 
+                // zmieniałby poprawnie zachowania SIGINT
 
             case 3:
                 signal(SIGINT, SIG_IGN);
                 break;
 
             case 4:
-                signal(SIGINT, sigint_handler);
+                struct sigaction sigact4; 
+                sigact4.sa_flags = 0;
+                sigemptyset(&sigact4.sa_mask);
+                sigact4.sa_handler = sigint_handler; 
+
+                sigaction(SIGINT, &sigact4, NULL);
                 break;
 
             case 5:
                 break;
 
+            case 0:
+                break;
+
             default:
-                printf("Otrzymano komendę spoza zakresu 0-5\n");
+                printf("Otrzymano komendę spoza zakresu 1-5\n");
                 break;
         }
+
+        sigsuspend(&empty_set);
     }
 
     printf("Koniec działania catchera\n");
