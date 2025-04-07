@@ -20,11 +20,8 @@ void sigint_handler(int sig) {
 int main() {
     printf("Moje PID to: %d\n", getpid());
 
-    sigset_t set, empty_set;
+    sigset_t empty_set;
     sigemptyset(&empty_set);
-
-    sigemptyset(&set);
-    sigaddset(&set, SIGUSR1);
 
     struct sigaction sigact;
     sigact.sa_sigaction = handler;
