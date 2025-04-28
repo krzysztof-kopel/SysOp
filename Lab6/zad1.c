@@ -5,7 +5,6 @@
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
-#define BUFFER_LENGTH 64
 
 double f(double x) {
     return 4 / (x * x + 1);
