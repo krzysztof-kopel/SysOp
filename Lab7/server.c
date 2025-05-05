@@ -9,7 +9,6 @@
 #include <time.h>
 #define MSG_SIZE 256
 #define INIT 100
-#define NORMAL 1
 
 int msqid;
 
@@ -54,7 +53,7 @@ int main() {
             } else {
 
                 struct msg_t outgoing;
-                outgoing.type = NORMAL;
+                outgoing.type = msg.type;
                 strcpy(outgoing.message, msg.message);
 
                 for (int i = 0; i < current_client_number; i++) {

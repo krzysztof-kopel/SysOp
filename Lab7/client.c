@@ -9,7 +9,6 @@
 #include <unistd.h>
 #define MSG_SIZE 256
 #define INIT 100
-#define NORMAL 1
 
 int client_msqid;
 
@@ -60,9 +59,8 @@ int main(int argc, void** argv) {
 
     if (receiver == 0) {
         struct msg_t incoming;
-        incoming.type = NORMAL;
-        while (msgrcv(client_msqid, &incoming, sizeof(incoming.message), NORMAL, 0) > 0) {
-            printf("Odebrano wiadomość: '%s'\n", incoming.message);
+        while (msgrcv(client_msqid, &incoming, sizeof(incoming.message), 0, 0) > 0) {
+            printf("Odebrano wiadomość: '%s' od klienta nr. %ld\n", incoming.message, incoming.type);
         }
     } else {
         struct msg_t outgoing;
