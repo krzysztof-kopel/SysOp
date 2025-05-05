@@ -8,7 +8,7 @@
 #include <string.h>
 #include <time.h>
 #define MSG_SIZE 256
-#define INIT 2
+#define INIT 100
 #define NORMAL 1
 
 int msqid;
@@ -51,13 +51,16 @@ int main() {
                 sprintf(reply.message, "%d", current_client_number);
                 msgsnd(client_qid, &reply, sizeof(reply.message), 0);
 
-            } else if (msg.type == NORMAL) {
+            } else {
 
                 struct msg_t outgoing;
                 outgoing.type = NORMAL;
                 strcpy(outgoing.message, msg.message);
 
                 for (int i = 0; i < current_client_number; i++) {
+                    if (i == msg.type - 1) {
+                        continue;
+                    }
                     msgsnd(client_keys[i], &outgoing, sizeof(outgoing.message), IPC_NOWAIT);
                 }
                 printf("Rozesłano wiadomość '%s' do wszystkich klientów.\n", msg.message);

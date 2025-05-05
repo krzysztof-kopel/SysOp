@@ -8,7 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 #define MSG_SIZE 256
-#define INIT 2
+#define INIT 100
 #define NORMAL 1
 
 int client_msqid;
@@ -45,9 +45,11 @@ int main(int argc, void** argv) {
     sprintf(init.message, "%d", key);
 
     msgsnd(server_msqid, &init, sizeof(init.message), IPC_NOWAIT);
+    int client_number;
 
     if (msgrcv(client_msqid, &init, sizeof(init.message), INIT, 0) > 0) {
-        printf("Został mi przydzielony numer klienta %d\n", atoi(init.message));
+        client_number = atoi(init.message);
+        printf("Został mi przydzielony numer klienta %d\n", client_number);
     } else {
         printf("Wystąpil błąd przy odczycie\n");
         perror("msgrcv");
@@ -64,7 +66,7 @@ int main(int argc, void** argv) {
         }
     } else {
         struct msg_t outgoing;
-        outgoing.type = NORMAL;
+        outgoing.type = client_number;
         
         while (1) {
             fgets(outgoing.message, 256, stdin);
