@@ -1,0 +1,2 @@
+Osobno zrobić program dla użytkowników i dla drukarek.
+Dla kolokwium można korzystać z System V lub POSIX według własnej woli (chyba że będzie część mechanizmu w szkielecie programu).

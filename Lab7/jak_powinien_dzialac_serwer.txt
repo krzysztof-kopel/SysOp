@@ -1,0 +1,1 @@
+Serwer powinien cały czas nasłuchiwać i gdy coś usłyszy, to tworzy nowy proces który obsługuje usłyszaną wiadomość, a sam serwer dalej nasłuchuje.
