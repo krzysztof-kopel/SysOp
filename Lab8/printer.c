@@ -16,17 +16,13 @@ void cleanup() {
     exit(0);
 }
 
-void send_next_message() {
-    char buffer[MESSAGE_LENGTH + 1] = ""; // +1 żeby było miejsce na \0
+void print(char* message) {
     for (int i = 0; i < MESSAGE_LENGTH; i++) {
-        buffer[i] = (rand() % ('z' - 'a' + 1)) + 'a';
+        printf("%c", message[i]);
+        fflush(stdout);
+        sleep(1);
     }
-    buffer[MESSAGE_LENGTH] = '\0';
-
-    printf("Wysyłam wiadomość %s do drukarek.\n", buffer);
-    sem_wait(sem_pointer);
-    add(queue_pointer, buffer);
-    sem_post(sem_pointer);
+    printf("\n");
 }
 
 int main() {
@@ -45,7 +41,20 @@ int main() {
     }
 
     while (1) {
-        send_next_message();
-        sleep(rand() % 5 + 1);
+        char message[MESSAGE_LENGTH + 1];
+
+        sem_wait(sem_pointer);
+        if (!is_empty(queue_pointer)) {
+            strcpy(message, get(queue_pointer));
+            message[MESSAGE_LENGTH] = '\0';
+        } else {
+            strcpy(message, "NONE");
+        }
+        sem_post(sem_pointer);
+
+        if (strcmp(message, "NONE")) {
+            print(message);
+        }
+        sleep(1);
     }
 }

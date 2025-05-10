@@ -1,5 +1,9 @@
 #include "common.h"
 
+int shm_id;
+struct queue* shm_queue_pointer;
+sem_t* semaphore_pointer;
+
 void cleanup() {
     if (shm_id != -1) {
         shmdt(shm_queue_pointer);
@@ -15,10 +19,6 @@ void cleanup() {
     exit(0);
 }
 
-int shm_id;
-struct queue* shm_queue_pointer;
-sem_t* semaphore_pointer;
-
 int main() {
     signal(SIGINT, cleanup);
 
@@ -30,13 +30,13 @@ int main() {
     shm_queue_pointer = (struct queue*)shmat(shm_id, NULL, 0);
     memcpy(shm_queue_pointer, &queue, sizeof(struct queue));
 
-    semaphore_pointer = sem_open(SEMAPHORE_NAME, O_CREAT, 0666, 2);
+    semaphore_pointer = sem_open(SEMAPHORE_NAME, O_CREAT, 0666, 1);
 
     if (shm_id == -1 || shm_queue_pointer == (void*) - 1 || semaphore_pointer == SEM_FAILED) {
         printf("Nastąpił błąd przy tworzeniu segmentu pamięci wspólnej lub semaforu.\n");
         cleanup();
     }
 
-    printf("Utworzono segment pamięci wspólną i semafor.\n");
+    printf("Utworzono segment pamięci wspólnej i semafor.\n");
     pause();
 }

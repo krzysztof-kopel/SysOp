@@ -1,15 +1,9 @@
 #include "common.h"
 
-struct queue {
-    char content[MAX_MESSAGE_NUMBER][MESSAGE_LENGTH];
-    int first;
-    int last;
-};
-
 void add(struct queue* q, char* message) {
+    strcpy(q->content[q->last], message);
     q->last++;
     q->last %= MAX_MESSAGE_NUMBER;
-    strcpy(q->content[q->last], message);
 }
 
 char* get(struct queue* q) {
@@ -25,4 +19,8 @@ void init_queue(struct queue* q) {
     for (int i = 0; i < MAX_MESSAGE_NUMBER; i++) {
         q->content[i][0] = '\0';
     }
+}
+
+int is_empty(struct queue* q) {
+    return q->first == q->last;
 }

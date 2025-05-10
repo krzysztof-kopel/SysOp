@@ -3,12 +3,14 @@
 #include <fcntl.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 #define MAX_MESSAGE_NUMBER 300
 #define MESSAGE_LENGTH 10
 #define KEY_CONST 1
@@ -26,3 +28,4 @@ char* get(struct queue* q);
 
 void init_queue(struct queue* q);
 
+int is_empty(struct queue* q);
