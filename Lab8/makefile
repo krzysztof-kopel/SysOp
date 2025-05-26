@@ -1,4 +1,4 @@
-all: printer user init
+all: clean printer user init
 
 test: all
 

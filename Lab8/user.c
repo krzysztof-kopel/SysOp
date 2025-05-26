@@ -23,10 +23,15 @@ void send_next_message() {
     }
     buffer[MESSAGE_LENGTH] = '\0';
 
+    int queueFullFlag = 0;
+    while (!queueFullFlag) {
+        sem_wait(sem_pointer);
+        queueFullFlag = add(queue_pointer, buffer);
+        sem_post(sem_pointer);
+        sleep(1);
+    }
+
     printf("Wysyłam wiadomość %s do drukarek.\n", buffer);
-    sem_wait(sem_pointer);
-    add(queue_pointer, buffer);
-    sem_post(sem_pointer);
 }
 
 int main() {
