@@ -29,7 +29,3 @@ struct message {
     int receiver_id;
     char content[100];
 };
-
-struct client_list_message {
-    struct client clients[100];
-};
