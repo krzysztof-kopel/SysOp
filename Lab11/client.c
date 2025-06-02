@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 
     if (pid == 0) {
         while (1) {
-            struct message incoming;
+            struct message incoming, ping;
             
             read(my_socket, &incoming, sizeof(incoming));
     
@@ -71,6 +71,11 @@ int main(int argc, char** argv) {
                 printf("%s\n", incoming.content);
             } else if (incoming.type == MES) {
                 printf("Wiadomość od klienta %d o treści: %s\n", incoming.sender_id, incoming.content);
+            } else if (incoming.type == PING) {
+                printf("Otrzymałem ping.\n");
+                ping.type = PING;
+                ping.sender_id = my_id;
+                write(my_socket, &ping, sizeof(ping));
             } else {
                 printf("Otrzymałem niezrozumiałą wiadomość.\n");
             }
@@ -78,25 +83,29 @@ int main(int argc, char** argv) {
     } else {
         while (pid != 0) {
             fgets(buffer, sizeof(buffer), stdin);
+            buffer[strcspn(buffer, "\r\n")] = '\0';
+            buffer[100] = '\0';
             char* first_word = strtok(buffer, " ");
             char* rest = strtok(NULL, "");
     
-            if (strcmp(first_word, "LIST\n") == 0) {
+            if (strcmp(first_word, "LIST") == 0) {
                 mess.type = LIST;
                 mess.sender_id = my_id;
                 
                 write(my_socket, &mess, sizeof(mess));
-                printf("Wysłano LIST\n");
     
             } else if (strcmp(first_word, "2ALL") == 0) {
                 mess.type = TO_ALL;
                 
+                rest[strcspn(rest, "\r\n")] = '\0';
                 strncpy(mess.content, rest, 100);
     
                 write(my_socket, &mess, sizeof(mess));
             } else if (strcmp(first_word, "2ONE") == 0) {
                 mess.type = TO_ONE;
                 mess.receiver_id = atoi(strtok(rest, " "));
+                
+                rest[strcspn(rest, "\r\n")] = '\0';
                 strncpy(mess.content, strtok(NULL, ""), 100);
     
                 write(my_socket, &mess, sizeof(mess));

@@ -4,6 +4,7 @@
 struct client clients[100];
 int current_id = 0;
 int listen_socket;
+int epoll_fd;
 
 void close_client(struct client* client) {
     client->active = 0;
@@ -39,19 +40,20 @@ char* format_all_clients() {
 
 
 void exit_handler() {
+    shutdown(listen_socket, SHUT_RDWR);
     close(listen_socket);
     for (int i = 0; i < current_id; i++) {
         if (clients[i].active) {
             close_client(&clients[i]);
         }
     }
+    close(epoll_fd);
     printf("Wszystkie zasoby zwolnione.\n");
     exit(0);
 }
 
 int main(int argc, char** argv) {
     signal(SIGINT, exit_handler);
-    signal(SIGCHLD, SIG_IGN);
     if (argc != 2) {
         printf("Nieprawidłowa liczba arugmentów\n");
         return -1;
@@ -81,20 +83,33 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    epoll_fd = epoll_create1(0);
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = listen_socket;
+    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_socket, &ev);
+
     struct message incoming, outgoing;
+    struct epoll_event events[10];
     while (1) {
         outgoing.type = MES;
-        int incoming_socket = accept(listen_socket, NULL, NULL);
+
+        int events_ready = epoll_wait(epoll_fd, events, 10, -1);
+
         memset(&incoming, 0, sizeof(incoming));
-        printf("Przed read\n");
-        if (read(incoming_socket, &incoming, sizeof(incoming)) < 0) {
-            exit(0);
-        }
-        printf("Coś doszło\n");
+
         time_t now = time(NULL);
         struct tm* local = localtime(&now);
-        switch (incoming.type) {
-            case NEW:
+
+        for (int i = 0; i < events_ready; i++) {
+            int fd = events[i].data.fd;
+            int event = events[i].events;
+
+            if (fd == listen_socket) {
+                int incoming_socket = accept(listen_socket, NULL, NULL);
+
+                read(incoming_socket, &incoming, sizeof(incoming));
+
                 struct client new_client;
                 new_client.id = current_id;
                 strcpy(new_client.name, incoming.content);
@@ -102,51 +117,61 @@ int main(int argc, char** argv) {
                 new_client.active = 1;
                 clients[current_id] = new_client;
 
+                struct epoll_event client_event;
+                client_event.events = EPOLLIN | EPOLLET; // Edge triggered, jednokrotnie emitowane powiadomienie
+                client_event.data.fd = incoming_socket;
+                epoll_ctl(epoll_fd, EPOLL_CTL_ADD, incoming_socket, &client_event);
+
                 outgoing.receiver_id = current_id;
+                printf("Zarejestrowałem nowego klienta o imieniu '%s' i ID=%d\n", incoming.content, current_id);
                 sprintf(outgoing.content, "Klient został zapisany z indeksem %d\n", current_id++);
                 write(incoming_socket, &outgoing, sizeof(outgoing));
-                printf("Koniec write\n");
-                break;
-
-            case LIST:
-                outgoing.type = LIST;
-                strcpy(outgoing.content, format_all_clients());
-                write(incoming_socket, &outgoing, sizeof(outgoing));
-                printf("Wysłano listę klientów klientowi %d\n", incoming.sender_id);
-                break;
-
-            case TO_ALL:
-                outgoing.type = MES;
-                outgoing.sender_id = incoming.sender_id;
-                sprintf(outgoing.content, "%02d:%02d:%02d %.88s\n", local->tm_hour, local->tm_min, local->tm_sec, incoming.content);
-                for (int i = 0; i < current_id; i++) {
-                    if (clients[i].id == incoming.sender_id || !clients[i].active) {
-                        continue;
+            } else {
+                read(fd, &incoming, sizeof(incoming));
+                switch (incoming.type) {
+                    case LIST:
+                        outgoing.type = LIST;
+                        strcpy(outgoing.content, format_all_clients());
+                        write(fd, &outgoing, sizeof(outgoing));
+                        printf("Wysłano listę klientów klientowi %d\n", incoming.sender_id);
+                        break;
+        
+                    case TO_ALL:
+                        outgoing.type = MES;
+                        outgoing.sender_id = incoming.sender_id;
+                        //incoming.content[strcspn(incoming.content, "\n")] = '\0';
+                        snprintf(outgoing.content, sizeof(outgoing.content), "%d.%d.%dr. %s", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, incoming.content);
+                        for (int i = 0; i < current_id; i++) {
+                            if (clients[i].id == incoming.sender_id || !clients[i].active) {
+                                continue;
+                            }
+                            write(clients[i].socket_desc, &outgoing, sizeof(outgoing));
+                        }
+                        printf("Rozesłano wiadomość '%s' wszystkim klientom.\n", outgoing.content);
+                        break;
+                    
+                    case TO_ONE:
+                        outgoing.type = MES;
+                        outgoing.sender_id = incoming.sender_id;
+                        //incoming.content[strcspn(incoming.content, "\n")] = '\0';
+                        snprintf(outgoing.content, sizeof(outgoing.content), "%d.%d.%dr. %s", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, incoming.content);
+                        if (!clients[incoming.receiver_id].active || incoming.receiver_id >= current_id) {
+                            printf("Probowano wysłać wiadomość do nieistniejącego klienta\n");
+                            continue;
+                        }
+                        write(clients[incoming.receiver_id].socket_desc, &outgoing, sizeof(outgoing));
+                        printf("Przesłano wiadomość '%s' klientowi %d.\n", outgoing.content, incoming.receiver_id);
+                        break;
+                    
+                    case STOP:
+                        close_client(&clients[incoming.sender_id]);
+                        printf("Usunięto klienta %d.\n", incoming.sender_id);
+                        break;
+        
+                    default:
+                        printf("Otrzymano niezrozumiałe polecenie od klienta nr %d.\n", incoming.sender_id);
                     }
-                    write(clients[i].socket_desc, &outgoing, sizeof(outgoing));
-                }
-                printf("Rozesłano wiadomość '%s' wszystkim klientom.\n", outgoing.content);
-                break;
-            
-            case TO_ONE:
-                outgoing.type = MES;
-                outgoing.sender_id = incoming.sender_id;
-                sprintf(outgoing.content, "%02d:%02d:%02d %.88s\n", local->tm_hour, local->tm_min, local->tm_sec, incoming.content);
-                if (!clients[incoming.receiver_id].active || incoming.receiver_id <= current_id) {
-                    printf("Probowano wysłać wiadomość do nieistniejącego klienta\n");
-                    continue;
-                }
-                write(clients[incoming.receiver_id].socket_desc, &outgoing, sizeof(outgoing));
-                printf("Przesłano wiadomość '%s' klientowi %d.\n", outgoing.content, incoming.receiver_id);
-                break;
-            
-            case STOP:
-                close_client(&clients[incoming.sender_id]);
-                printf("Usunięto klienta %d.\n", incoming.sender_id);
-                break;
-
-            default:
-                printf("Otrzymano niezrozumiałe polecenie od klienta nr %d.\n", incoming.sender_id);
+            }
         }
     }
 }

@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -12,7 +13,6 @@
 #define TO_ALL 3
 #define TO_ONE 4
 #define STOP 5
-#define ALIVE 6
 #define MES 7
 #define PING 8
 
