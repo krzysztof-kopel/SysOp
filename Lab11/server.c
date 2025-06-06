@@ -1,10 +1,12 @@
 #include "common.h"
 
-
 struct client clients[100];
 int current_id = 0;
 int listen_socket;
-int epoll_fd;
+char all_clients_list[100];
+pthread_t worker_threads[100];
+pthread_mutex_t clients_access_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t one_formatter_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void close_client(struct client* client) {
     client->active = 0;
@@ -18,9 +20,10 @@ char* format_client(const struct client *c) {
 }
 
 
-char* format_all_clients() {
+void format_all_clients() {
     size_t total_size = 64 * current_id;
     char *result = malloc(total_size);
+    memset(result, 0, sizeof(result));
 
     result[0] = '\0';
 
@@ -34,12 +37,83 @@ char* format_all_clients() {
         strncat(result, "\n", total_size - strlen(result) - 1);
         free(line);
     }
+    strcpy(all_clients_list, result);
+}
 
-    return result;
+void* handle_existing_client(void* data) {
+    struct client* my_client = (struct client*) data;
+    struct message incoming, outgoing;
+    while (1) {
+        if (read(my_client->socket_desc, &incoming, sizeof(incoming)) <= 0) {
+            pthread_mutex_lock(&clients_access_mutex);
+            close_client(my_client);
+            pthread_mutex_unlock(&clients_access_mutex);
+            return (void*)my_client;
+        }
+        time_t now = time(NULL);
+        struct tm* local = localtime(&now);
+        
+        switch (incoming.type) {
+            case LIST:
+                outgoing.type = LIST;
+                pthread_mutex_lock(&clients_access_mutex);
+                pthread_mutex_lock(&one_formatter_mutex);
+                format_all_clients();
+                strcpy(outgoing.content, all_clients_list);
+                outgoing.content[sizeof(outgoing.content) - 1] = '\0';
+                write(my_client->socket_desc, &outgoing, sizeof(outgoing));
+                printf("Wysłano listę klientów klientowi %d\n", incoming.sender_id);
+                pthread_mutex_unlock(&one_formatter_mutex);
+                pthread_mutex_unlock(&clients_access_mutex);
+                break;
+
+            case TO_ALL:
+                outgoing.type = MES;
+                outgoing.sender_id = incoming.sender_id;
+                //incoming.content[strcspn(incoming.content, "\n")] = '\0';
+                snprintf(outgoing.content, sizeof(outgoing.content), "%d.%d.%dr. %.60s", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, incoming.content);
+                pthread_mutex_lock(&clients_access_mutex);
+                for (int i = 0; i < current_id; i++) {
+                    if (clients[i].id == incoming.sender_id || !clients[i].active) {
+                        continue;
+                    }
+                    write(clients[i].socket_desc, &outgoing, sizeof(outgoing));
+                }
+                printf("Rozesłano wiadomość '%s' wszystkim klientom.\n", outgoing.content);
+                break;
+            
+            case TO_ONE:
+                outgoing.type = MES;
+                outgoing.sender_id = incoming.sender_id;
+                //incoming.content[strcspn(incoming.content, "\n")] = '\0';
+                snprintf(outgoing.content, sizeof(outgoing.content), "%d.%d.%dr. %.60s", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, incoming.content);
+                pthread_mutex_lock(&clients_access_mutex);
+                if (!clients[incoming.receiver_id].active || incoming.receiver_id >= current_id) {
+                    printf("Probowano wysłać wiadomość do nieistniejącego klienta\n");
+                    continue;
+                }
+                write(clients[incoming.receiver_id].socket_desc, &outgoing, sizeof(outgoing));
+                printf("Przesłano wiadomość '%s' klientowi %d.\n", outgoing.content, incoming.receiver_id);
+                break;
+            
+            case STOP:
+                pthread_mutex_lock(&clients_access_mutex);
+                close_client(&clients[incoming.sender_id]);
+                printf("Usunięto klienta %d.\n", incoming.sender_id);
+                break;
+
+            default:
+                printf("Otrzymano niezrozumiałe polecenie od klienta nr %d.\n", incoming.sender_id);
+        }
+        pthread_mutex_unlock(&clients_access_mutex);
+    }
 }
 
 
 void exit_handler() {
+    for (int i = 0; i < current_id; i++) {
+        pthread_cancel(worker_threads[i]);
+    }
     shutdown(listen_socket, SHUT_RDWR);
     close(listen_socket);
     for (int i = 0; i < current_id; i++) {
@@ -47,7 +121,6 @@ void exit_handler() {
             close_client(&clients[i]);
         }
     }
-    close(epoll_fd);
     printf("Wszystkie zasoby zwolnione.\n");
     exit(0);
 }
@@ -83,95 +156,33 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    epoll_fd = epoll_create1(0);
-    struct epoll_event ev;
-    ev.events = EPOLLIN;
-    ev.data.fd = listen_socket;
-    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_socket, &ev);
-
-    struct message incoming, outgoing;
-    struct epoll_event events[10];
+    struct message first_contact, first_response;
     while (1) {
-        outgoing.type = MES;
+        first_response.type = MES;
 
-        int events_ready = epoll_wait(epoll_fd, events, 10, -1);
+        memset(&first_contact, 0, sizeof(first_contact));
 
-        memset(&incoming, 0, sizeof(incoming));
+        int incoming_socket = accept(listen_socket, NULL, NULL);
 
-        time_t now = time(NULL);
-        struct tm* local = localtime(&now);
+        read(incoming_socket, &first_contact, sizeof(first_contact));
 
-        for (int i = 0; i < events_ready; i++) {
-            int fd = events[i].data.fd;
-            int event = events[i].events;
+        pthread_mutex_lock(&clients_access_mutex);
+        struct client new_client;
+        new_client.id = current_id;
+        strcpy(new_client.name, first_contact.content);
+        new_client.socket_desc = incoming_socket;
+        new_client.active = 1;
+        clients[current_id] = new_client;
+        pthread_mutex_unlock(&clients_access_mutex);
 
-            if (fd == listen_socket) {
-                int incoming_socket = accept(listen_socket, NULL, NULL);
+        first_response.receiver_id = current_id;
+        printf("Zarejestrowałem nowego klienta o imieniu '%s' i ID=%d\n", first_contact.content, current_id);
+        sprintf(first_response.content, "Klient został zapisany z indeksem %d\n", current_id);
+        write(incoming_socket, &first_response, sizeof(first_response));
 
-                read(incoming_socket, &incoming, sizeof(incoming));
-
-                struct client new_client;
-                new_client.id = current_id;
-                strcpy(new_client.name, incoming.content);
-                new_client.socket_desc = incoming_socket;
-                new_client.active = 1;
-                clients[current_id] = new_client;
-
-                struct epoll_event client_event;
-                client_event.events = EPOLLIN | EPOLLET; // Edge triggered, jednokrotnie emitowane powiadomienie
-                client_event.data.fd = incoming_socket;
-                epoll_ctl(epoll_fd, EPOLL_CTL_ADD, incoming_socket, &client_event);
-
-                outgoing.receiver_id = current_id;
-                printf("Zarejestrowałem nowego klienta o imieniu '%s' i ID=%d\n", incoming.content, current_id);
-                sprintf(outgoing.content, "Klient został zapisany z indeksem %d\n", current_id++);
-                write(incoming_socket, &outgoing, sizeof(outgoing));
-            } else {
-                read(fd, &incoming, sizeof(incoming));
-                switch (incoming.type) {
-                    case LIST:
-                        outgoing.type = LIST;
-                        strcpy(outgoing.content, format_all_clients());
-                        write(fd, &outgoing, sizeof(outgoing));
-                        printf("Wysłano listę klientów klientowi %d\n", incoming.sender_id);
-                        break;
-        
-                    case TO_ALL:
-                        outgoing.type = MES;
-                        outgoing.sender_id = incoming.sender_id;
-                        //incoming.content[strcspn(incoming.content, "\n")] = '\0';
-                        snprintf(outgoing.content, sizeof(outgoing.content), "%d.%d.%dr. %s", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, incoming.content);
-                        for (int i = 0; i < current_id; i++) {
-                            if (clients[i].id == incoming.sender_id || !clients[i].active) {
-                                continue;
-                            }
-                            write(clients[i].socket_desc, &outgoing, sizeof(outgoing));
-                        }
-                        printf("Rozesłano wiadomość '%s' wszystkim klientom.\n", outgoing.content);
-                        break;
-                    
-                    case TO_ONE:
-                        outgoing.type = MES;
-                        outgoing.sender_id = incoming.sender_id;
-                        //incoming.content[strcspn(incoming.content, "\n")] = '\0';
-                        snprintf(outgoing.content, sizeof(outgoing.content), "%d.%d.%dr. %s", local->tm_mday, local->tm_mon + 1, local->tm_year + 1900, incoming.content);
-                        if (!clients[incoming.receiver_id].active || incoming.receiver_id >= current_id) {
-                            printf("Probowano wysłać wiadomość do nieistniejącego klienta\n");
-                            continue;
-                        }
-                        write(clients[incoming.receiver_id].socket_desc, &outgoing, sizeof(outgoing));
-                        printf("Przesłano wiadomość '%s' klientowi %d.\n", outgoing.content, incoming.receiver_id);
-                        break;
-                    
-                    case STOP:
-                        close_client(&clients[incoming.sender_id]);
-                        printf("Usunięto klienta %d.\n", incoming.sender_id);
-                        break;
-        
-                    default:
-                        printf("Otrzymano niezrozumiałe polecenie od klienta nr %d.\n", incoming.sender_id);
-                    }
-            }
-        }
+        pthread_create(&worker_threads[current_id], 0, &handle_existing_client, &clients[current_id]);
+        current_id++;
     }
+
+    return 0;
 }
