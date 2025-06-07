@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
                 printf("Wiadomość od klienta %d o treści: %s\n", incoming.sender_id, incoming.content);
             } else if (incoming.type == PING) {
                 printf("Otrzymałem ping.\n");
-                ping.type = PING;
+                ping.type = PONG;
                 ping.sender_id = my_id;
                 write(my_socket, &ping, sizeof(ping));
             } else {

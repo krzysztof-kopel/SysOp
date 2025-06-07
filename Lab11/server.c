@@ -48,7 +48,7 @@ void* handle_existing_client(void* data) {
             pthread_mutex_lock(&clients_access_mutex);
             close_client(my_client);
             pthread_mutex_unlock(&clients_access_mutex);
-            return (void*)my_client;
+            return NULL;
         }
         time_t now = time(NULL);
         struct tm* local = localtime(&now);
@@ -102,18 +102,46 @@ void* handle_existing_client(void* data) {
                 printf("Usunięto klienta %d.\n", incoming.sender_id);
                 break;
 
+            case PONG:
+                pthread_mutex_lock(&clients_access_mutex);
+                my_client->last_ping = time(NULL);
+                break;
+
             default:
                 printf("Otrzymano niezrozumiałe polecenie od klienta nr %d.\n", incoming.sender_id);
         }
         pthread_mutex_unlock(&clients_access_mutex);
+        if (!my_client->active) {
+            return NULL;
+        }
     }
 }
 
+void* pinger(void*) {
+    struct message ping_mess;
+    ping_mess.type = PING;
+    while (1) {
+        for (int i = 0; i < current_id; i++) {
+            pthread_mutex_lock(&clients_access_mutex);
+            if (!clients[i].active) {
+                pthread_mutex_unlock(&clients_access_mutex);
+                continue;
+            }
+
+            if (time(NULL) - clients[i].last_ping > PING_TIMEOUT) {
+                printf("Zamykam klienta o ID=%d, gdyż ten zbyt długo nie odpowiadał.\n", clients[i].id);
+                close_client(&clients[i]);
+            } else {
+                write(clients[i].socket_desc, &ping_mess, sizeof(ping_mess));
+            }
+
+            pthread_mutex_unlock(&clients_access_mutex);
+        }
+        sleep(10);
+    }
+}
 
 void exit_handler() {
-    for (int i = 0; i < current_id; i++) {
-        pthread_cancel(worker_threads[i]);
-    }
     shutdown(listen_socket, SHUT_RDWR);
     close(listen_socket);
     for (int i = 0; i < current_id; i++) {
@@ -156,6 +184,9 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    pthread_t ping_thread;
+    pthread_create(&ping_thread, 0, &pinger, NULL);
+
     struct message first_contact, first_response;
     while (1) {
         first_response.type = MES;
@@ -172,6 +203,7 @@ int main(int argc, char** argv) {
         strcpy(new_client.name, first_contact.content);
         new_client.socket_desc = incoming_socket;
         new_client.active = 1;
+        new_client.last_ping = time(NULL);
         clients[current_id] = new_client;
         pthread_mutex_unlock(&clients_access_mutex);
 
