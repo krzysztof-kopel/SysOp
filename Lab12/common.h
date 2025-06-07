@@ -1,9 +1,35 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/epoll.h>
 #include <time.h>
 #include <unistd.h>
+
+#define NEW 1
+#define LIST 2
+#define TO_ALL 3
+#define TO_ONE 4
+#define STOP 5
+#define MES 7
+#define PING 8
+#define PONG 9
+
+#define PING_TIMEOUT 10
+
+struct client {
+    int id;
+    char name[50];
+    struct sockaddr_in address;
+    int active;
+    time_t last_ping;
+};
+
+struct message {
+    int type;
+    int sender_id;
+    int receiver_id;
+    char content[100];
+};
