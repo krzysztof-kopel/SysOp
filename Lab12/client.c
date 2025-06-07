@@ -3,13 +3,14 @@
 int my_socket;
 int my_id;
 pid_t pid; // Pomaga mi określić, czy to proces czytający czy wysyłający
+struct sockaddr_in server_address;
 
 void handler() {
     if (pid != 0) {
         struct message mess_end;
         mess_end.type = STOP;
         mess_end.sender_id = my_id;
-        write(my_socket, &mess_end, sizeof(mess_end));
+        sendto(my_socket, &mess_end, sizeof(mess_end), 0, (struct sockaddr*) &server_address, sizeof(server_address));
 
         close(my_socket);
         printf("Klient zamknięty.\n");
@@ -34,7 +35,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    struct sockaddr_in server_address;
     server_address.sin_family = AF_INET;
     server_address.sin_port = htons(port);
     server_address.sin_addr.s_addr = inet_addr(ipv4_server_address);
